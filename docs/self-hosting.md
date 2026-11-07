@@ -109,7 +109,7 @@ If you already run a reverse proxy that handles HTTPS, for example on another ma
 - Publish the server's port only on a private-network address the proxy can reach, never on a public address, and allow only the proxy to connect to it. A host firewall such as ufw does not filter ports that Docker publishes (Docker's documentation says the traffic is routed before ufw's rules apply), so use a firewall in front of the host or follow Docker's firewall guidance.
 - Keep `LEGISLATION_NZ_TRUST_PROXY=true` (the Compose file sets it) if the proxy appends the client address to `X-Forwarded-For`. This is safe only while nothing but the proxy can reach the server. A client that could connect directly could put any address in that header and get around the per-IP limits.
 
-To turn off the bundled Caddy and publish the port, create `deploy/docker-compose.override.yml`, with `PRIVATE-IP` replaced by the server's private-network address:
+To turn off the bundled Caddy and publish the port, create `docker-compose.override.yml` in `deploy/`, with `PRIVATE-IP` replaced by the server's private-network address:
 
 ```yaml
 services:
