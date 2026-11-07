@@ -106,7 +106,7 @@ If you already run a reverse proxy that handles HTTPS, for example on another ma
 - Terminate TLS at the proxy. The public URL must still be `https://`, and `LEGISLATION_NZ_PUBLIC_URL` must match it exactly.
 - Pass the original `Host` header through unchanged. The server checks it and answers 403 "Invalid Host" if it changes.
 - Forward every path to the server, including `/.well-known/oauth-protected-resource/mcp` (sign-in discovery) and `/healthz`.
-- Publish the server's port only on a private-network address the proxy can reach, never on a public address, and allow only the proxy to connect to it (for example with a firewall rule).
+- Publish the server's port only on a private-network address the proxy can reach, never on a public address, and allow only the proxy to connect to it. A host firewall such as ufw does not filter ports that Docker publishes (Docker's documentation says the traffic is routed before ufw's rules apply), so use a firewall in front of the host or follow Docker's firewall guidance.
 - Keep `LEGISLATION_NZ_TRUST_PROXY=true` (the Compose file sets it) if the proxy appends the client address to `X-Forwarded-For`. This is safe only while nothing but the proxy can reach the server. A client that could connect directly could put any address in that header and get around the per-IP limits.
 
 To turn off the bundled Caddy and publish the port, create `deploy/docker-compose.override.yml`, with `PRIVATE-IP` replaced by the server's private-network address:
@@ -268,3 +268,7 @@ Privacy: the hash is pseudonymous, not anonymous. It is unsalted so that you can
 - xAI, remote MCP tools: https://docs.x.ai/developers/tools/remote-mcp
 - Auth0 recipe basis: Apollo's Auth0 guide (https://www.apollographql.com/docs/apollo-mcp-server/guides/auth-auth0) and the Auth0 support article on the MCP audience error (https://support.auth0.com/center/s/article/mcp-audience-error-with-auth0)
 - Caddy reverse proxy behaviour (Host passed through; X-Forwarded-For): https://caddyserver.com/docs/caddyfile/directives/reverse_proxy
+- Auth0, Dynamic Client Registration (default permissions needed before enabling DCR; domain-level connections only): https://auth0.com/docs/get-started/applications/dynamic-client-registration
+- Auth0, developer keys ("should not be used in production"): https://auth0.com/docs/authenticate/identity-providers/social-identity-providers/devkeys
+- Docker, packet filtering and firewalls (published ports and ufw): https://docs.docker.com/engine/network/packet-filtering-firewalls/
+- Docker Compose, merging files (override read automatically) and profiles: https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/ and https://docs.docker.com/compose/how-tos/profiles/
