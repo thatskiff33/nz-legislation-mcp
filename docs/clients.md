@@ -2,7 +2,7 @@
 
 # Adding the server to your AI client
 
-These steps run the server on your own computer (recommended). For ChatGPT, Claude on the web and the xAI API, which need a remote endpoint, see [self-hosting.md](self-hosting.md).
+These steps run the server on your own computer (recommended). For ChatGPT on the web, Claude on the web and the xAI API, which need a remote endpoint, see [self-hosting.md](self-hosting.md).
 
 ## First, save your API key
 

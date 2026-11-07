@@ -78,9 +78,27 @@ On Claude Code versions before 2.1.275, run
 `/plugin marketplace add thatskiff33/nz-legislation-mcp` and then
 `/plugin install nz-legislation-mcp@nz-legislation-mcp`.
 
-## Remote endpoint (ChatGPT, Claude on the web, Grok)
+## Remote endpoint (ChatGPT on the web, Claude on the web, Grok)
 
 Clients that cannot start a local program need a remote HTTPS endpoint. The server has a hardened HTTP mode that only admits you, through your own OAuth provider. See [docs/self-hosting.md](docs/self-hosting.md).
+
+## Tested clients
+
+Checked by hand with version 1.0.1 on 7 and 8 November 2026
+([results](https://github.com/thatskiff33/nz-legislation-mcp/issues/11)). The local clients ran on Windows 11.
+
+- Claude Code, with the `claude mcp add` command above.
+- Claude Desktop, with the one-click bundle.
+- The ChatGPT desktop app, running the server locally. OpenAI's documentation says it shares one configuration
+  (`~/.codex/config.toml`) with Codex CLI, so the `codex mcp add` command above should also add it there. It worked in
+  both a normal ChatGPT chat and the Codex side of the app.
+- ChatGPT on the web, through a self-hosted endpoint with Auth0 and Google sign-in
+  ([docs/self-hosting.md](docs/self-hosting.md)).
+
+Not tested (owner decision, 8 November 2026): Codex CLI on its own, Cursor, Grok (the app or the
+xAI API) and the Claude Code plugin. The other clients in [docs/clients.md](docs/clients.md),
+Claude on the web or mobile, and clients on macOS or Linux were not part of these checks. Their
+set-up steps have not been checked by hand.
 
 ## Security and privacy
 

@@ -2,7 +2,7 @@
 
 Most people should run this server locally (stdio). Claude Desktop, Claude Code, Codex, Cursor and VS Code all support that, and nothing is exposed to the internet. See the README.
 
-A remote endpoint is only needed for clients that cannot start a local program: ChatGPT, Claude on the web or mobile, and the xAI (Grok) API. This guide covers that.
+A remote endpoint is only needed for clients that cannot start a local program: ChatGPT on the web, Claude on the web or mobile, and the xAI (Grok) API. This guide covers that.
 
 > Not an official Parliamentary Counsel Office (PCO) product. Results are not legal advice; check the official version on legislation.govt.nz.
 
