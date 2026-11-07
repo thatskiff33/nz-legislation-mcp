@@ -99,6 +99,46 @@ docker run -d --name nz-legislation-mcp \
 
 Put an HTTPS reverse proxy in front of port 8080. Pass the original `Host` header through unchanged (the server checks it against `LEGISLATION_NZ_PUBLIC_URL`). If the proxy appends the client address to `X-Forwarded-For`, set `LEGISLATION_NZ_TRUST_PROXY=true` so per-IP limits apply to real clients rather than to the proxy.
 
+### Behind an existing reverse proxy
+
+If you already run a reverse proxy that handles HTTPS, for example on another machine, you can use it instead of the bundled Caddy (tested 8 November 2026, #11):
+
+- Terminate TLS at the proxy. The public URL must still be `https://`, and `LEGISLATION_NZ_PUBLIC_URL` must match it exactly.
+- Pass the original `Host` header through unchanged. The server checks it and answers 403 "Invalid Host" if it changes.
+- Forward every path to the server, including `/.well-known/oauth-protected-resource/mcp` (sign-in discovery) and `/healthz`.
+- Publish the server's port only on a private-network address the proxy can reach, never on a public address, and allow only the proxy to connect to it. A host firewall such as ufw does not filter ports that Docker publishes (Docker's documentation says the traffic is routed before ufw's rules apply), so use a firewall in front of the host or follow Docker's firewall guidance.
+- Keep `LEGISLATION_NZ_TRUST_PROXY=true` (the Compose file sets it) if the proxy appends the client address to `X-Forwarded-For`. This is safe only while nothing but the proxy can reach the server. A client that could connect directly could put any address in that header and get around the per-IP limits.
+
+To turn off the bundled Caddy and publish the port, create `docker-compose.override.yml` in `deploy/`, with `PRIVATE-IP` replaced by the server's private-network address:
+
+```yaml
+services:
+  mcp:
+    ports: ["PRIVATE-IP:8080:8080"]
+    # Rotate the container's logs (many hosts have no Docker-wide log limit).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  caddy:
+    profiles: ["disabled"]
+```
+
+Docker Compose reads `docker-compose.override.yml` automatically, so start the server as usual with `docker compose pull && docker compose up -d`. (Compose skips it when files are named with `-f`, so if you build from source, add `-f docker-compose.override.yml` to that command.) A service with a profile only starts when that profile is requested, so Caddy stays off. Keep `NZLM_DOMAIN` in `.env`, because the server's public URL is built from it.
+
+#### Starting after the private network on reboot
+
+Docker can only publish the port on a specific address once that address exists. If the address belongs to a VPN or overlay interface that comes up after Docker at boot, the container may fail to start. Docker's service already waits for the network to be online, so you only need to order it after the interface's service. Run `sudo systemctl edit docker.service` and add, with `YOUR-VPN.service` replaced by that service (for example `wg-quick@wg0.service` for WireGuard or `tailscaled.service` for Tailscale):
+
+```ini
+[Unit]
+Wants=YOUR-VPN.service
+After=YOUR-VPN.service
+```
+
+Then reboot and check that the server comes back on its own (`docker compose ps` in `deploy/`).
+
 ## Configuration
 
 All settings are environment variables. The server checks them at start-up and exits with a clear message if anything is wrong or unsafe.
@@ -127,10 +167,10 @@ All settings are environment variables. The server checks them at start-up and e
 
 Your provider must issue JWT access tokens whose audience is this server, and must let ChatGPT or Claude register as a client. Client support differs:
 
-| Provider | ChatGPT                                                                                                                | Claude Desktop and Code    | Claude on the web                               | Notes                                                                                    |
-| -------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Auth0    | Yes, via dynamic client registration                                                                                   | Yes                        | Yes                                             | Hosted; free tier available. Recipe below, not yet end-to-end tested by the maintainers. |
-| Keycloak | Not via Client ID Metadata Documents (Keycloak's guide describes a custom workaround); dynamic registration not tested | Yes (per Keycloak's guide) | Expected (same callback as Desktop; not tested) | Self-hosted, open source. Recipe below; token checks tested.                             |
+| Provider | ChatGPT                                                                                                                | Claude Desktop and Code    | Claude on the web                               | Notes                                                                                                          |
+| -------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Auth0    | Yes, via dynamic client registration                                                                                   | Yes                        | Yes                                             | Hosted; free tier available. Recipe below; tested end to end with ChatGPT on 8 November 2026 (Google sign-in). |
+| Keycloak | Not via Client ID Metadata Documents (Keycloak's guide describes a custom workaround); dynamic registration not tested | Yes (per Keycloak's guide) | Expected (same callback as Desktop; not tested) | Self-hosted, open source. Recipe below; token checks tested.                                                   |
 
 Other providers can work if they meet the requirements above, because the server is a standard OAuth 2.1 resource server.
 
@@ -147,21 +187,29 @@ The maintainers checked this recipe's token handling on 2 November 2026 with Key
 
 ### Recipe: Auth0 (ChatGPT and Claude)
 
-Not yet end-to-end tested by the maintainers; based on the sources listed below. Labels in the Auth0 dashboard may differ.
+Tested end to end with ChatGPT on 8 November 2026, signing in through a Google social connection (#11). Claude clients have not been tested with this recipe. The Auth0 and Google dashboards change over time; the notes say what they showed on 8 November 2026.
 
 1. Create an "API" whose "Identifier" is your `LEGISLATION_NZ_PUBLIC_URL` (for example `https://mcp.example.com/mcp`). Auth0 then issues JWT access tokens with that audience.
-2. In tenant "Settings", "Advanced": turn on "Dynamic Client Registration" (ChatGPT and Claude register themselves; Auth0 recommends "Strict" for the DCR security mode) and the "Resource Parameter Compatibility Profile" (so the MCP `resource` parameter is used as the audience).
-3. Clients that register themselves are third-party applications, which can only use domain-level connections. For the connection your account uses (for example the username-password database), turn on "Promote Connection to Domain Level". Consider turning off public sign-ups on that connection.
-4. Find your account's user ID (User Management, Users, your user; it looks like `auth0|...`).
-5. Configure this server:
+2. On that API, set "Default permissions for third-party applications" (user-delegated access) to "Authorized". Do this before step 3. Clients that register themselves are third-party applications, and Auth0's documentation says they get no access to an API without default permissions.
+3. In tenant "Settings", "Advanced", turn on "Dynamic Client Registration" so ChatGPT and Claude can register themselves. Check that the "Resource Parameter Compatibility Profile" is on, so the MCP `resource` parameter is used as the audience (it was already on in a new tenant). Older guidance mentions a "Strict" security mode for registration; the dashboard did not offer one, only a warning that registration is open.
+4. Set up the connection you will sign in with, and turn on "Promote Connection to Domain Level" for it. Clients that register themselves can only use domain-level connections.
+   - Google (tested):
+     - In Google Cloud, create your own OAuth client of type "Web application", with the authorised JavaScript origin `https://YOUR-AUTH0-DOMAIN` and the authorised redirect URI `https://YOUR-AUTH0-DOMAIN/login/callback`. On Google's "Branding" page, add `auth0.com` under "Authorised domains".
+     - In Auth0's Google connection, enter that client's ID and secret, set "Purpose" to "Authentication", and leave "Offline Access" off. Don't use Auth0's development keys, which Auth0 says are not for production.
+     - As an extra lock, leave the Google app's publishing status at "Testing", with only your own Google account as a test user, so Google itself refuses other accounts. Testing status is fine for sign-in, because Auth0 does not ask Google for offline access.
+   - Username and password (not tested end to end): create your user, then turn on "Disable Sign Ups" for the connection.
+5. Find your account's user ID (User Management, Users, your user). It looks like `google-oauth2|...` for Google, or `auth0|...` for a username-and-password user.
+6. Configure this server:
    - `LEGISLATION_NZ_OAUTH_ISSUER`: the `issuer` from `https://YOUR-AUTH0-DOMAIN/.well-known/openid-configuration` (for Auth0 it normally ends with a slash).
-   - `LEGISLATION_NZ_OAUTH_ALLOWED_SUBJECTS`: your user ID.
+   - `LEGISLATION_NZ_OAUTH_ALLOWED_SUBJECTS`: your user ID only.
 
-Anyone can register a client with your tenant, but this server admits only the accounts you list.
+Anyone can register a client with your tenant, and the Google connection had no setting to stop new accounts signing up. `LEGISLATION_NZ_OAUTH_ALLOWED_SUBJECTS` is therefore the control that admits only you: the server refuses a valid sign-in by any other account with 403.
+
+Auth0 also offers Client ID Metadata Document (CIMD) registration as a separate setting, which ChatGPT prefers where available. It could replace open dynamic registration, but it has not been tested with this server.
 
 ## Connecting clients
 
-- **ChatGPT:** add a custom MCP connector with the URL `https://mcp.example.com/mcp`. Where to add it depends on your plan and ChatGPT's current settings (to confirm against OpenAI's help pages). ChatGPT discovers your provider from this server, then asks you to sign in. ChatGPT prioritises Client ID Metadata Documents when available and otherwise can use dynamic client registration ([OpenAI documentation](https://developers.openai.com/plugins/build/auth)).
+- **ChatGPT:** add a custom MCP connector with the URL `https://mcp.example.com/mcp`. Where to add it depends on your plan and ChatGPT's current settings. In a ChatGPT Business workspace on 8 November 2026, it was added from "Plugins", then "Add", then "Add custom MCP server", and the final button was "Create as a plugin" (as reported by the owner). Other plans may differ. ChatGPT discovers your provider from this server, then asks you to sign in. ChatGPT prioritises Client ID Metadata Documents when available and otherwise can use dynamic client registration ([OpenAI documentation](https://developers.openai.com/plugins/build/auth)).
 - **Claude (web, Desktop):** add a custom connector with the same URL. Claude supports dynamic client registration and Client ID Metadata Documents ([Anthropic documentation](https://claude.com/docs/connectors/building/authentication)).
 - **xAI (Grok) API:** the API can call remote MCP servers and lets you supply an `authorization` value, which it sends in the Authorization header ([xAI documentation](https://docs.x.ai/developers/tools/remote-mcp)). Because this server accepts only short-lived OAuth access tokens, you would obtain a fresh token from your provider for each session. Whether xAI expects the `Bearer ` prefix in that value is to confirm. There is no long-lived key option, by design.
 
@@ -220,3 +268,7 @@ Privacy: the hash is pseudonymous, not anonymous. It is unsalted so that you can
 - xAI, remote MCP tools: https://docs.x.ai/developers/tools/remote-mcp
 - Auth0 recipe basis: Apollo's Auth0 guide (https://www.apollographql.com/docs/apollo-mcp-server/guides/auth-auth0) and the Auth0 support article on the MCP audience error (https://support.auth0.com/center/s/article/mcp-audience-error-with-auth0)
 - Caddy reverse proxy behaviour (Host passed through; X-Forwarded-For): https://caddyserver.com/docs/caddyfile/directives/reverse_proxy
+- Auth0, Dynamic Client Registration (default permissions needed before enabling DCR; domain-level connections only): https://auth0.com/docs/get-started/applications/dynamic-client-registration
+- Auth0, developer keys ("should not be used in production"): https://auth0.com/docs/authenticate/identity-providers/social-identity-providers/devkeys
+- Docker, packet filtering and firewalls (published ports and ufw): https://docs.docker.com/engine/network/packet-filtering-firewalls/
+- Docker Compose, merging files (override read automatically) and profiles: https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/ and https://docs.docker.com/compose/how-tos/profiles/
